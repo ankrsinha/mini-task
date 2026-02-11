@@ -10,6 +10,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	miniclient "github.com/ankrsinha/mini-task/pkg/generated/clientset/versioned"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -79,6 +80,21 @@ func main() {
 				// create pod
 
 				podName := tr.Name + "-pod"
+
+				// Check if pod already exists
+				_, err := coreClient.CoreV1().
+					Pods("default").
+					Get(ctx, podName, metav1.GetOptions{})
+
+				if err == nil {
+					fmt.Println("Pod already exists. Skipping creation.")
+					break
+				}
+
+				if !apierrors.IsNotFound(err) {
+					fmt.Println("Error checking Pod existence:", err)
+					break
+				}
 
 				fmt.Println("Creating Pod:", podName)
 
@@ -152,7 +168,32 @@ func main() {
 					Pods("default").
 					Get(ctx, podName, metav1.GetOptions{})
 
+				// if err != nil {
+				// 	fmt.Println("Error fetching Pod:", err)
+				// 	break
+				// }
+
 				if err != nil {
+					if apierrors.IsNotFound(err) {
+						fmt.Println("Pod missing. Marking TaskRun as Failed.")
+
+						trCopy := tr.DeepCopy()
+						trCopy.Status.Phase = "Failed"
+						now := metav1.Now()
+						trCopy.Status.FinishTime = &now
+
+						_, updateErr := clientset.
+							MinitaskV1().
+							TaskRuns("default").
+							UpdateStatus(ctx, trCopy, metav1.UpdateOptions{})
+
+						if updateErr != nil {
+							fmt.Println("Error updating TaskRun status:", updateErr)
+						}
+
+						continue
+					}
+
 					fmt.Println("Error fetching Pod:", err)
 					break
 				}
@@ -174,24 +215,24 @@ func main() {
 					if trCopy.Status.StartTime == nil {
 						now := metav1.Now()
 						trCopy.Status.StartTime = &now
-						fmt.Println("[START TIME SET]")
+						fmt.Println("Start time set")
 					}
 
 				case corev1.PodSucceeded:
 					newPhase = "Succeeded"
 					now := metav1.Now()
 					trCopy.Status.FinishTime = &now
-					fmt.Println("[FINISHED SUCCESSFULLY]")
+					fmt.Println("Finished Successfully!!")
 
 				case corev1.PodFailed:
 					newPhase = "Failed"
 					now := metav1.Now()
 					trCopy.Status.FinishTime = &now
-					fmt.Println("[FAILED]")
+					fmt.Println("Failed!!")
 				}
 
 				if oldPhase != newPhase {
-					fmt.Printf("[PHASE TRANSITION] %s → %s\n", oldPhase, newPhase)
+					fmt.Printf("Phase Transition %s → %s\n", oldPhase, newPhase)
 					trCopy.Status.Phase = newPhase
 
 					_, err = clientset.
@@ -203,7 +244,7 @@ func main() {
 						fmt.Println("Error updating TaskRun status:", err)
 					}
 				} else {
-					fmt.Println("[NO PHASE CHANGE]")
+					fmt.Println("No Phase Change!")
 				}
 
 			case "Succeeded", "Failed":

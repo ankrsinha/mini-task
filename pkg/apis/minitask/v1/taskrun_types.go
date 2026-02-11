@@ -22,6 +22,7 @@ type TaskRunStatus struct {
 	FinishTime *metav1.Time `json:"finishTime,omitempty"`
 }
 
+// +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type TaskRun struct {
 	metav1.TypeMeta   `json:",inline"`

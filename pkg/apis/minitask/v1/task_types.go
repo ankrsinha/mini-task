@@ -21,6 +21,7 @@ type TaskSpec struct {
 	Steps []Step `json:"steps"`
 }
 
+// +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type Task struct {
 	metav1.TypeMeta   `json:",inline"`

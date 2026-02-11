@@ -1,0 +1,6 @@
+apiVersion: minitask.myorg.dev/v1
+kind: TaskRun
+metadata:
+  name: test-run
+spec:
+  taskRef: dummy

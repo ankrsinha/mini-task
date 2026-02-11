@@ -15,10 +15,8 @@ import (
 func main() {
 	ctx := context.Background()
 
-	// Try in-cluster config first
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		// Fallback to local kubeconfig
 		kubeconfig := clientcmd.RecommendedHomeFile
 		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
 		if err != nil {
@@ -27,14 +25,14 @@ func main() {
 		}
 	}
 
-	// Create generated client
+	// create generated client
 	clientset, err := miniclient.NewForConfig(config)
 	if err != nil {
 		fmt.Println("Error creating mini client:", err)
 		os.Exit(1)
 	}
 
-	// List TaskRuns
+	// get all TaskRuns
 	taskRuns, err := clientset.
 		MinitaskV1().
 		TaskRuns("default").

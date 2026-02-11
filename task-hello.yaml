@@ -1,0 +1,15 @@
+apiVersion: minitask.myorg.dev/v1
+kind: Task
+metadata:
+  name: hello-task
+  namespace: default
+spec:
+  steps:
+    - name: step1
+      image: bash:latest
+      script: |
+        echo "Hello from Step 1"
+    - name: step2
+      image: bash:latest
+      script: |
+        echo "Hello from Step 2"

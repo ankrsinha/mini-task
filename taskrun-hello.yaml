@@ -1,0 +1,7 @@
+apiVersion: minitask.myorg.dev/v1
+kind: TaskRun
+metadata:
+  name: hello-run
+  namespace: default
+spec:
+  taskRef: hello-task

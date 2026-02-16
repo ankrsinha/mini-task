@@ -126,9 +126,8 @@ func main() {
 
 	// start worker
 	// go controller.runWorker()
-	for i := 0; i < 2; i++ {
-		go controller.runWorker()
-	}
+	go controller.runWorker()
+	
 
 	// block forever
 	select {}

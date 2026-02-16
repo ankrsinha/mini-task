@@ -146,6 +146,10 @@ go run controller/informer/main.go
 ---
 
 ### 5. Install Kubectl Plugin
+Build binary file of kubectl plugin:
+```bash
+go build -o kubectl-task cmd/main.go
+```
 
 Move binary to PATH:
 

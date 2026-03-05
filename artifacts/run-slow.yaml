@@ -1,0 +1,7 @@
+apiVersion: minitask.myorg.dev/v1
+kind: TaskRun
+metadata:
+  name: run-slow
+  namespace: default
+spec:
+  taskRef: task-slow

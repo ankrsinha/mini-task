@@ -176,7 +176,7 @@ func (r *TaskRunReconciler) handleNewTaskRun(ctx context.Context, tr *miniv1.Tas
 	}
 
 	// Update TaskRun status to Pending
-	logf.Info("Pod created successfully", "pod", podName)
+	log.Info("Pod created successfully", "pod", podName)
 	tr.Status.Phase = "Pending"
 	tr.Status.PodName = podName
 

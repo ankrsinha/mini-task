@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"time"
 
 	miniv1 "github.com/ankrsinha/mini-task/pkg/apis/minitask/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -73,59 +74,62 @@ func main() {
 	}
 
 	// Starting manager
+	logf.Info("Starting Controller Manager")
 	err = mgr.Start(ctrl.SetupSignalHandler())
 	if err != nil {
 		logf.Error(err, "Problem running manager")
 		os.Exit(1)
 	}
-
-	logf.Info("Manager Started Successfully")
 }
 
-// Reconciler
-
 func (r *TaskRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// log := ctrl.Log.WithName("reconciler").WithValues("taskrun", req.Name)
 
-	// Fetch TaskRun
+	log := ctrl.LoggerFrom(ctx).WithValues("taskrun", req.NamespacedName)
+
+	log.Info("Reconciling TaskRun")
+
+	// Fetching TaskRun
 	var tr miniv1.TaskRun
 	if err := r.Get(ctx, req.NamespacedName, &tr); err != nil {
 		// If deleted then ignore
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	log.Info("TaskRun fetched successfully")
+
+	log.Info("Current Phase", "phase", tr.Status.Phase)
+
 	switch tr.Status.Phase {
 
 	case "Succeeded", "Failed":
-		logf.Info("TaskRun already completed. Skipping.")
+		log.Info("TaskRun already completed. Skipping.")
 		return ctrl.Result{}, nil
 
 	case "":
-		logf.Info("New TaskRun found! Creating Pod...")
+		log.Info("New TaskRun found! Creating Pod...")
 		return r.handleNewTaskRun(ctx, &tr)
 
 	case "Pending", "Running":
-		logf.Info("TaskRun is active. Checking Pod status...")
+		log.Info("TaskRun is active. Checking Pod status...")
 		return r.handleActiveTaskRun(ctx, &tr)
 
 	default:
-		logf.Info("Unknown Phase", "phase", tr.Status.Phase)
+		log.Info("Unknown Phase", "phase", tr.Status.Phase)
 		return ctrl.Result{}, nil
 	}
 
 }
 
-// Handle new taskrun
-
 func (r *TaskRunReconciler) handleNewTaskRun(ctx context.Context, tr *miniv1.TaskRun) (ctrl.Result, error) {
-	// log := ctrl.Log.WithName("handleNew")
+
+	log := ctrl.LoggerFrom(ctx)
 
 	// Find Task
 	var task miniv1.Task
 
 	taskKey := types.NamespacedName{Name: tr.Spec.TaskRef, Namespace: tr.Namespace}
 	if err := r.Get(ctx, taskKey, &task); err != nil {
-		logf.Error(err, "Referenced Task not found", "task", tr.Spec.TaskRef)
+		log.Error(err, "Referenced Task not found", "task", tr.Spec.TaskRef)
 		// If task not found then status = failed
 		tr.Status.Phase = "Failed"
 		_ = r.Status().Update(ctx, tr)
@@ -134,20 +138,47 @@ func (r *TaskRunReconciler) handleNewTaskRun(ctx context.Context, tr *miniv1.Tas
 
 	// Pod Manifest
 	podName := tr.Name + "-pod"
-	pod := r.buildPod(podName, tr, &task)
+
+	// Check if Pod already exists (idempotency)
+	var existingPod corev1.Pod
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      podName,
+		Namespace: tr.Namespace,
+	}, &existingPod)
+
+	if err == nil {
+		log.Info("Pod already exists", "pod", podName)
+		return ctrl.Result{}, nil
+	}
+
+	if err != nil && !apierrors.IsNotFound(err) {
+		return ctrl.Result{}, err
+	}
+
+	pod, err := r.buildPod(podName, tr, &task) // return Pod object definition
+
+	if err != nil {
+		log.Error(err, "Unable to set owner reference")
+		return ctrl.Result{}, err
+	}
 
 	// Create Pod
-	if err := r.Create(ctx, pod); err != nil && !apierrors.IsAlreadyExists(err) {
-		logf.Error(err, "Failed to create Pod")
-		return ctrl.Result{}, err
+	log.Info("Creating Pod", "pod", podName)
+
+	if err := r.Create(ctx, pod); err != nil {
+
+		if !apierrors.IsAlreadyExists(err) {
+			log.Error(err, "Pod creation failed")
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Pod already exists (race condition)", "pod", podName)
 	}
 
 	// Update TaskRun status to Pending
 	logf.Info("Pod created successfully", "pod", podName)
 	tr.Status.Phase = "Pending"
 	tr.Status.PodName = podName
-	now := metav1.Now()
-	tr.Status.StartTime = &now
 
 	if err := r.Status().Update(ctx, tr); err != nil {
 		return ctrl.Result{}, err
@@ -156,10 +187,9 @@ func (r *TaskRunReconciler) handleNewTaskRun(ctx context.Context, tr *miniv1.Tas
 	return ctrl.Result{}, nil
 }
 
-// Handle active taskrun
-
 func (r *TaskRunReconciler) handleActiveTaskRun(ctx context.Context, tr *miniv1.TaskRun) (ctrl.Result, error) {
-	// log := ctrl.Log.WithName("handleActive")
+
+	log := ctrl.LoggerFrom(ctx)
 
 	// Find corresponding Pod
 	var pod corev1.Pod
@@ -169,7 +199,7 @@ func (r *TaskRunReconciler) handleActiveTaskRun(ctx context.Context, tr *miniv1.
 	// If pod not found
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logf.Info("Pod missing! Marking TaskRun as Failed.")
+			log.Info("Pod missing! Marking TaskRun as Failed.")
 			tr.Status.Phase = "Failed"
 			now := metav1.Now()
 			tr.Status.FinishTime = &now
@@ -188,6 +218,10 @@ func (r *TaskRunReconciler) handleActiveTaskRun(ctx context.Context, tr *miniv1.
 		newPhase = "Pending"
 	case corev1.PodRunning:
 		newPhase = "Running"
+		if tr.Status.StartTime == nil {
+			now := metav1.Now()
+			tr.Status.StartTime = &now
+		}
 	case corev1.PodSucceeded:
 		newPhase = "Succeeded"
 		now := metav1.Now()
@@ -200,19 +234,21 @@ func (r *TaskRunReconciler) handleActiveTaskRun(ctx context.Context, tr *miniv1.
 
 	// If Status changed then save it to API Server
 	if oldPhase != newPhase {
-		logf.Info("Phase Transition", "From", oldPhase, "To", newPhase)
+		log.Info("Phase Transition", "From", oldPhase, "To", newPhase)
 		tr.Status.Phase = newPhase
 		if err := r.Status().Update(ctx, tr); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
+	if newPhase == "Running" {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
 	return ctrl.Result{}, nil
 }
 
-// Pod Builder
-
-func (r *TaskRunReconciler) buildPod(podName string, tr *miniv1.TaskRun, task *miniv1.Task) *corev1.Pod {
+func (r *TaskRunReconciler) buildPod(podName string, tr *miniv1.TaskRun, task *miniv1.Task) (*corev1.Pod, error) {
 
 	// Converting steps (of Task) to containers
 	var containers []corev1.Container
@@ -225,6 +261,7 @@ func (r *TaskRunReconciler) buildPod(podName string, tr *miniv1.TaskRun, task *m
 		})
 	}
 
+	// Defining Pod
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
@@ -239,10 +276,14 @@ func (r *TaskRunReconciler) buildPod(podName string, tr *miniv1.TaskRun, task *m
 		},
 	}
 
-	// Making Pod as child of TaskRun ( adv1. If tr gets deleted then pod also gets deleted,
+	// Making Pod as child of TaskRun (adv1. If tr gets deleted then pod also gets deleted,
 	// adv2. If status of pod changes then reconcile loop automatically starts executing)
 
-	_ = ctrl.SetControllerReference(tr, pod, r.Scheme)
+	err := ctrl.SetControllerReference(tr, pod, r.Scheme)
 
-	return pod
+	if err != nil {
+		return nil, err
+	}
+
+	return pod, nil
 }

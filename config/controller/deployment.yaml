@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mini-task-controller
+  namespace: mini-task-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mini-task-controller
+  template:
+    metadata:
+      labels:
+        app: mini-task-controller
+    spec:
+      serviceAccountName: mini-task-controller
+      containers:
+      - name: controller
+        image: ghcr.io/ankrsinha/mini-task-runner:fork2

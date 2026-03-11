@@ -1,115 +1,44 @@
 # Mini Task Runner
 
-This project is a simplified, Tekton-like task execution system built using **Kubernetes Custom Resource Definitions (CRDs)** and **Controllers**. It serves as a practical guide for building automated systems that manage containerized workloads through custom resources.
+A simplified, Tekton-like task execution system built with **Kubernetes Custom Resource Definitions (CRDs)** and a **controller-runtime** based controller. It runs multi-step containerized scripts by creating Pods from `Task` and `TaskRun` resources.
 
 ## Key Components
 
 * **Task (CRD)**: A reusable template describing script steps, including names, images, and scripts.
-
-
 * **TaskRun (CRD)**: An execution instance created when a user starts a specific task.
-
-
 * **Controller**: A background process that watches for `TaskRun` resources, creates corresponding Pods, and tracks execution status.
-
-
 * **Kubectl Plugin**: A custom CLI tool (`kubectl-task`) used to trigger runs manually.
 
 
+## Execution flow
 
----
+1. **Define** — Create a `Task` with one or more steps (image + script).
+2. **Trigger** — Run `kubectl task start <task-name>` (or create a `TaskRun` manually).
+3. **Reconcile** — The controller sees the `TaskRun`, resolves the `Task`, and creates a Pod whose containers run the steps.
+4. **Monitor** — The controller updates the `TaskRun` status from the Pod’s phase (Pending → Running → Succeeded/Failed).
 
-## Execution Flow
+## TaskRun phases
 
-The system operates through a clear lifecycle from definition to execution:
+*(empty)* : New `TaskRun`, not yet processed.
+**Pending**: Controller has created the Pod; it may not be running yet.
+**Running**: Pod is running.
+**Succeeded**: All containers in the Pod completed successfully.
+**Failed**: Pod failed or the referenced Task was not found.
 
-1. **Define**: The user creates a `Task` resource describing the steps.
+## Prerequisites
 
-
-2. **Trigger**: The user runs `kubectl task start <task-name>`, which creates a `TaskRun` object.
-
-
-3. **Reconcile**: The controller detects the new `TaskRun` and creates a Pod to execute the defined scripts.
-
-
-4. **Monitor**: The controller updates the `TaskRun` status based on the Pod's lifecycle.
-
----
-
-
----
-
-## Development Phases
-
-### Phase 1: Custom Resource Definition & Code Gen
-
-* **CRD Creation**: Define `Task` (steps, images, scripts) and `TaskRun` (task references and status).
-
-
-* **Code Generation**: Use `k8s.io/code-generator` to create clients, listers, and informers.
-
-
-* **Installation**: Apply CRDs to the cluster using `kubectl apply -f config/crd/bases/`.
-
-
-
-### Phase 2: Basic Controller Logic
-
-* **Reconciliation Loop**: Implement a loop that lists `TaskRuns`, creates Pods if they don't exist, and updates status upon completion.
-
-
-* **Pod Management**: The controller translates `Task` steps into a Kubernetes Pod with a `Never` restart policy.
-
-* **Architecture for Polling based controller**:
-  ![Polling.png](https://i.postimg.cc/8CXtTHNP/Polling.png)
-
-### Phase 3: Event-Driven Optimization
-
-* **Informers**: Replace manual polling with a shared informer factory to watch for `TaskRun` and `Pod` events.
-
-
-* **Workqueue**: Introduce a rate-limited workqueue to handle `TaskRun` keys efficiently.
-
-* **Architecture for Informer based controller**:
-![Workflow](https://user-images.githubusercontent.com/4377940/89552246-7cb48a00-d83e-11ea-8c3f-02d7c3400c2c.png)
-
-
-
-### Phase 4: CLI Integration
-
-* **Plugin Development**: Build a `kubectl-task` binary that allows users to initiate executions via the command line.
-
-
-
----
-
-## TaskRun Status Phases
-
-The controller tracks the following phases within the `TaskRun` status:
-
-* **Pending**: The initial state before processing.
-
-
-* **Running**: The execution Pod has started.
-
-
-* **Succeeded**: The Pod completed its task successfully.
-
-
-* **Failed**: The execution Pod failed during the task.
-
----
+- Go 1.25+
+- A Kubernetes cluster and `kubectl` configured (e.g. `KUBECONFIG` or default kubeconfig).
+- For cluster deployment: ability to apply CRDs, RBAC, and a Deployment.
 
 ## Installation
 
-### 1. Clone Repository
+### 1. Clone and enter the repo
 
 ```bash
 git clone https://github.com/ankrsinha/mini-task
 cd mini-task
 ```
-
----
 
 ### 2. Install CRDs
 
@@ -117,78 +46,120 @@ cd mini-task
 kubectl apply -f config/crd/bases/
 ```
 
-Verify:
+Check that CRDs exist:
 
 ```bash
 kubectl get crds
 ```
 
----
+### 3. Run the controller locally
 
-### 3. Generate Clients
-
-```bash
-bash hack/update-codegen.sh
-```
-
----
-
-### 4. Run Controller
+From the repo root:
 
 ```bash
-go run controller/basic/main.go
-```
-or 
-```bash
-go run controller/informer/main.go
+go run cmd/controller/main.go
 ```
 
----
+The controller uses your kubeconfig and needs permission to manage `Task`/`TaskRun` and Pods in the target namespace(s). For a quick local test, run with a cluster admin context or use the same RBAC as the deployed controller (see below).
 
-### 5. Install Kubectl Plugin
-Build binary file of kubectl plugin:
-```bash
-go build -o kubectl-task cmd/main.go
-```
-
-Move binary to PATH:
+### 4. Build and install the kubectl plugin
 
 ```bash
-mv kubectl-task /usr/local/bin/
+go build -o kubectl-task cmd/kubectl-task/main.go
+mv kubectl-task /usr/local/bin/   # or another directory in your PATH
 ```
 
----
+Ensure the binary is named `kubectl-task` so that `kubectl task` works.
+
+## Deploying the controller in-cluster
+
+1. **Namespace and RBAC**
+
+```bash
+kubectl create namespace mini-task-system
+kubectl apply -f config/controller/rbac.yaml
+```
+
+2. **Build and push image** (example; adjust registry/tag)
+
+```bash
+docker build -t <your-registry>/mini-task-controller:latest .
+docker push <your-registry>/mini-task-controller:latest
+```
+
+3. **Deploy**
+
+Edit `config/controller/deployment.yaml` and set the controller image to your tag, then:
+
+```bash
+kubectl apply -f config/controller/deployment.yaml
+```
 
 ## Usage
 
-### Create Task
+### Create a Task
+
+Example from the repo:
 
 ```bash
-kubectl apply -f task.yaml
+kubectl apply -f artifacts/task-hello.yaml
 ```
 
-### Start Task
+Or define your own Task (API group `minitask.myorg.dev/v1`, kind `Task`):
+
+```yaml
+apiVersion: minitask.myorg.dev/v1
+kind: Task
+metadata:
+  name: my-task
+  namespace: default
+spec:
+  steps:
+    - name: step1
+      image: bash:latest
+      script: |
+        echo "Hello from Step 1"
+    - name: step2
+      image: bash:latest
+      script: |
+        echo "Hello from Step 2"
+```
+
+### Start a run
+
+Using the plugin (creates a TaskRun with generated name in `default` namespace):
 
 ```bash
-kubectl task start hello
+kubectl task start task-hello
 ```
 
-### Watch Execution
+Or create a TaskRun manually:
+
+```bash
+kubectl apply -f artifacts/run-hello.yaml
+```
+
+### Watch runs and pods
 
 ```bash
 kubectl get taskruns -w
+kubectl get pods -w
 ```
 
-### Inspect Pod
-
-```bash
-kubectl get pods
-kubectl logs <pod>
-```
-
-### Inspect Status
+### Inspect status and logs
 
 ```bash
 kubectl get taskrun <name> -o yaml
+kubectl get pods
+kubectl logs <pod-name> -c <step-name>
+```
+
+
+## Code generation
+
+If you change types under `pkg/apis/minitask/`, regenerate deepcopy and client code:
+
+```bash
+bash hack/update-codegen.sh
 ```
 

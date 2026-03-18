@@ -368,11 +368,11 @@ kubectl logs <pod-name> -c <step-name>
 
 ---
 
-## 🏁 Conclusion
+## Conclusion
 
 Migrating from **client-go → controller-runtime** shifts development from:
 
-> 🔧 Infrastructure-heavy → Logic-focused
+>  Infrastructure-heavy → Logic-focused
 
 This version aligns closely with **real-world Kubernetes operators**, making it more scalable and production-ready.
 

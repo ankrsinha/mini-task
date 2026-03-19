@@ -49,10 +49,6 @@ The system operates through a clear lifecycle from definition to execution:
 
 * **Workqueue Overhead**: Retry logic and rate limiting handled manually
 
-* **Complex Resource Mapping**: Additional logic required to relate Pods with TaskRuns
-
-* **Reduced Maintainability**: Infrastructure-heavy code made extension and debugging harder
-
 ---
 
 ## Architecture (controller-runtime)

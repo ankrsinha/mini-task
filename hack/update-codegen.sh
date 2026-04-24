@@ -12,9 +12,15 @@ CODEGEN_PKG=$(go list -m -f '{{.Dir}}' k8s.io/code-generator)
 
 source "${CODEGEN_PKG}/kube_codegen.sh"
 
-# generate deepcopy
+# Generate deepcopy methods
 kube::codegen::gen_helpers \
   --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
   "${SCRIPT_ROOT}/pkg/apis"
 
-
+# Generate typed clientset, listers, and informers
+kube::codegen::gen_client \
+  --with-watch \
+  --output-dir "${SCRIPT_ROOT}/pkg/generated" \
+  --output-pkg "${MODULE}/pkg/generated" \
+  --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
+  "${SCRIPT_ROOT}/pkg/apis"

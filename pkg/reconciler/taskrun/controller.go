@@ -3,6 +3,9 @@ package taskrun
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/cache"
+
 	kubeclient "knative.dev/pkg/client/injection/kube/client"
 	podinformer "knative.dev/pkg/client/injection/kube/informers/core/v1/pod"
 	"knative.dev/pkg/configmap"
@@ -10,6 +13,7 @@ import (
 	"knative.dev/pkg/injection"
 	"knative.dev/pkg/logging"
 
+	miniv1 "github.com/ankrsinha/mini-task/pkg/apis/minitask/v1"
 	minitaskclient "github.com/ankrsinha/mini-task/pkg/generated/clientset/versioned"
 	minitaskinformers "github.com/ankrsinha/mini-task/pkg/generated/informers/externalversions"
 )
@@ -44,7 +48,15 @@ func NewController(ctx context.Context, cmw configmap.Watcher) *controller.Impl 
 
 	taskRunInformer.Informer().AddEventHandler(controller.HandleAll(impl.Enqueue))
 
-	podInformer.Informer().AddEventHandler(controller.HandleAll(impl.EnqueueControllerOf))
+	taskRunGVK := schema.GroupVersionKind{
+		Group:   miniv1.SchemeGroupVersion.Group,
+		Version: miniv1.SchemeGroupVersion.Version,
+		Kind:    "TaskRun",
+	}
+	podInformer.Informer().AddEventHandler(cache.FilteringResourceEventHandler{
+		FilterFunc: controller.FilterControllerGVK(taskRunGVK),
+		Handler:    controller.HandleAll(impl.EnqueueControllerOf),
+	})
 
 	factory.Start(ctx.Done())
 	factory.WaitForCacheSync(ctx.Done())

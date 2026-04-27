@@ -1,0 +1,10 @@
+# Compiled binaries
+controller
+kubectl-task
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

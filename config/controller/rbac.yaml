@@ -20,6 +20,10 @@ rules:
   resources: ["taskruns/status"]
   verbs: ["update","patch"]
 
+- apiGroups: ["minitask.myorg.dev"]
+  resources: ["taskruns/finalizers"]
+  verbs: ["update","patch"]
+
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["create","get","list","watch"]

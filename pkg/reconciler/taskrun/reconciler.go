@@ -12,6 +12,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"knative.dev/pkg/logging"
+	"knative.dev/pkg/reconciler"
 
 	miniv1 "github.com/ankrsinha/mini-task/pkg/apis/minitask/v1"
 	minitaskclient "github.com/ankrsinha/mini-task/pkg/generated/clientset/versioned"
@@ -19,6 +20,7 @@ import (
 )
 
 type Reconciler struct {
+	reconciler.LeaderAwareFuncs
 	kubeClient    kubernetes.Interface
 	customClient  minitaskclient.Interface
 	taskRunLister minitaskv1listers.TaskRunLister
